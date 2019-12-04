@@ -5,6 +5,7 @@ import json
 
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 from datetime import datetime
 from tensorflow.python.client import device_lib
 import tensorflow_datasets as tfds
@@ -76,11 +77,11 @@ def mobilenet(alpha=1, size=224, num_class=10):
     x = _deepwise_conv_block(x, filters=256, kernel_size=(3, 3), stride=1)
     x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=2)
     # 5x
-    x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
-    x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
-    x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
-    x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
-    x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
+    # x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
+    # x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
+    # x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
+    # x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
+    # x = _deepwise_conv_block(x, filters=512, kernel_size=(3, 3), stride=1)
     # paper parameter mistakes here
     x = _deepwise_conv_block(x, filters=1024, kernel_size=(3, 3), stride=2)
     x = _deepwise_conv_block(x, filters=1024, kernel_size=(3, 3), stride=1)
@@ -189,7 +190,24 @@ def mobilenet_naive(alpha=1, size=224, num_class=10):
 
 '''
 
+class TimeHistory(tf.keras.callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.times = []
+
+    def on_epoch_begin(self, batch, logs={}):
+        self.epoch_time_start = time.time()
+
+    def on_epoch_end(self, batch, logs={}):
+        time_pass = np.round(time.time() - self.epoch_time_start, 3)
+        self.times.append(time_pass)
+        logs['time'] = time_pass
+
+
 if __name__ == '__main__':
+    '''
+    alpha = [0.25, 0.50, 0.75, 1.0] # width
+    size = [128, 160, 192, 224] # resolution 
+    '''
 
     config = ConfigProto()
     config.gpu_options.allow_growth = True
@@ -202,44 +220,48 @@ if __name__ == '__main__':
     
     print(device_lib.list_local_devices())
 
-    train_data, test_data = load_data('cifar10')
+    
 
     # preprocess 
     # -----set parameters------
     num_class = 10
-    alpha = 1
-    size = 192
-    rho = np.round(size / 224.0, 2) 
-    # token = 'mn_alpha' + str(alpha) + '_rho' + str(rho) 
-    token = 'mn_alpha_1_size' + str(size)
-    # --------------------------
-    train_data = train_data.map(lambda x: format_data(x['image'], x['label'], num_class, size=size))
-    test_data = test_data.map(lambda x: format_data(x['image'], x['label'], num_class, size=size))
-    # create model  
-    model = mobilenet(alpha=alpha, size=size, num_class=num_class)
-    # print(model.summary())
-    # write model structure 
-    with open('models/' + token + '.json', 'w') as f:
-        json.dump(model.to_json(), f)
+    alpha_list = [0.50, 0.75, 1.0]
+    size = 224
+    rho = np.round(size / 224.0, 2)
+    for alpha in [1]:
+        train_data, test_data = load_data('cifar10')
+        # token = 'cifar100_mn_alpha' + str(alpha) + '_rho' + str(rho) 
+        token = 'cifar10_mn_alpha_1_shallow'
+        # --------------------------
+        train_data = train_data.map(lambda x: format_data(x['image'], x['label'], num_class, size=size))
+        test_data = test_data.map(lambda x: format_data(x['image'], x['label'], num_class, size=size))
+        # create model  
+        model = mobilenet(alpha=alpha, size=size, num_class=num_class)
+        # print(model.summary())
+        # write model structure 
+        with open('models/' + token + '.json', 'w') as f:
+            json.dump(model.to_json(), f)
 
-    # logdir = "logs/scalars/" + datetime.now().strftime("%Y%m%d-%H%M%S")
-    # tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
-    # compile model
-    rmsprop = tf.keras.optimizers.RMSprop(learning_rate=0.005)
-    # adam = tf.keras.optimizers.Adam(learning_rate=0.05)
-    training_history = model.compile(optimizer=rmsprop,
-                                        metrics=['accuracy'],
-                                        loss='categorical_crossentropy')
+        # logdir = "logs/scalars/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        # tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+        # compile model
+        rmsprop = tf.keras.optimizers.RMSprop(learning_rate=0.005)
+        # adam = tf.keras.optimizers.Adam(learning_rate=0.05)
+        training_history = model.compile(optimizer=rmsprop,
+                                            metrics=['accuracy'],
+                                            loss='categorical_crossentropy')
 
-    filename = "logs/history/" + token + '_' + datetime.now().strftime("%Y%m%d-%H%M%S") + '.log'
-    csv_logger = tf.keras.callbacks.CSVLogger(filename, separator=',', append=False)
-    # fit model 
-    history = model.fit(train_data.shuffle(1000).batch(64),
-                        epochs=10,
-                        callbacks=[csv_logger],
-                        validation_data=test_data.shuffle(1000).batch(64))
+        filename = "logs/history100/" + token + '_' + datetime.now().strftime("%Y%m%d-%H%M%S") + '.log'
+        csv_logger = tf.keras.callbacks.CSVLogger(filename, separator=',', append=False)
+        time_callback = TimeHistory()
 
-    # save
-    model.save('models/'+ token + '_' + datetime.now().strftime("%Y%m%d-%H%M%S")+'.h5')
+        # fit model 
+        history = model.fit(train_data.shuffle(1000).batch(64),
+                            epochs=10,
+                            callbacks=[time_callback, csv_logger],
+                            validation_data=test_data.shuffle(1000).batch(64))
+
+        # save
+        model.save('models/'+ token + '_' + datetime.now().strftime("%Y%m%d-%H%M%S")+'.h5')
 
 
